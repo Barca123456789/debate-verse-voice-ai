@@ -9,7 +9,45 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      debate_history: {
+        Row: {
+          created_at: string
+          id: string
+          is_voice: boolean
+          opponent_name: string
+          opponent_score: number
+          topic_category: string
+          topic_title: string
+          user_id: string
+          user_score: number
+          winner: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_voice?: boolean
+          opponent_name: string
+          opponent_score: number
+          topic_category: string
+          topic_title: string
+          user_id: string
+          user_score: number
+          winner: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_voice?: boolean
+          opponent_name?: string
+          opponent_score?: number
+          topic_category?: string
+          topic_title?: string
+          user_id?: string
+          user_score?: number
+          winner?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
