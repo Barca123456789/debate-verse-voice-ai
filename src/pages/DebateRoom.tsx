@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -359,8 +358,7 @@ const DebateRoom = () => {
                 <span className="text-3xl font-bold">{formatTime(timeLeft)}</span>
                 <Progress 
                   value={(timeLeft / 300) * 100} 
-                  className="h-2 mt-2"
-                  indicatorClassName={timeLeft < 60 ? "bg-red-500" : undefined}
+                  className={`h-2 mt-2 ${timeLeft < 60 ? "bg-secondary [&>div]:bg-red-500" : ""}`}
                 />
               </div>
             </CardContent>
