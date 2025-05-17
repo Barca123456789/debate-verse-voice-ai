@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { AuthStatus } from "@/types";
+import { Progress } from "@/components/ui/progress";
 
 interface ProtectedRouteProps {
   children: ReactNode;
