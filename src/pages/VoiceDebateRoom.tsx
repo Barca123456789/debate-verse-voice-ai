@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -9,8 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Mic, MicOff, Volume2 } from "lucide-react";
+import { Mic, MicOff, Volume2, StopCircle, Trophy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Label } from "@/components/ui/label";
 
 const VoiceDebateRoom = () => {
   const { roomId } = useParams<{ roomId: string }>();
@@ -31,11 +35,15 @@ const VoiceDebateRoom = () => {
   const [elevenlabsApiKey, setElevenlabsApiKey] = useState<string>("");
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [loadingVoice, setLoadingVoice] = useState(false);
+  const [interruptAI, setInterruptAI] = useState(false);
   
   // Debate state
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
   const [isDebateActive, setIsDebateActive] = useState(true);
   const [feedback, setFeedback] = useState<AIFeedback[]>([]);
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const [debateResultOpen, setDebateResultOpen] = useState(false);
+  const [finalScore, setFinalScore] = useState<{userScore: number, aiScore: number, winner: string} | null>(null);
   
   // Audio elements
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -44,7 +52,6 @@ const VoiceDebateRoom = () => {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   
   // Speech recognition
-  // Fix the SpeechRecognition type issue
   const [recognition, setRecognition] = useState<any | null>(null);
 
   // Mock data for demonstration
@@ -117,14 +124,15 @@ const VoiceDebateRoom = () => {
           audioElement.addEventListener('ended', () => {
             setIsAISpeaking(false);
             setCurrentSpeaker(null);
+            setInterruptAI(false);
           });
           audioRef.current = audioElement;
         }
         
         // Mock AI speech after a delay
         setTimeout(() => {
-          handleAISpeech("Let me begin with my opening statement. Facial recognition technology in public spaces poses significant privacy concerns. Citizens have a right to move freely without constant surveillance and identification. Furthermore, these systems have shown bias against certain demographics, leading to potential discrimination. While I understand the security benefits, I believe the risks to civil liberties far outweigh them.");
-        }, 3000);
+          handleAISpeech("Let me begin with my opening statement. Facial recognition in public spaces threatens privacy rights. While it may offer security benefits, the risk of mass surveillance and potential discrimination outweigh these advantages.", true);
+        }, 2000);
         
       } catch (error) {
         console.error("Error fetching debate room:", error);
@@ -180,16 +188,13 @@ const VoiceDebateRoom = () => {
               };
               
               setFeedback(prev => [...prev, newFeedback]);
-              
-              // If we want to make the AI moderator speak the evaluation
-              // handleAISpeech(aiEvaluation.replace("AI Moderator: ", ""));
-            }, 1000);
+            }, 800);
           }
           
           // Simulate opponent response after the user speaks
           setTimeout(() => {
             handleOpponentResponse();
-          }, 3000);
+          }, 1500);
         }
       };
       
@@ -233,35 +238,14 @@ const VoiceDebateRoom = () => {
         const newTime = prev - 1;
         if (newTime <= 0) {
           clearInterval(timer);
-          setIsDebateActive(false);
-          
-          // Add debate ended transcript
-          setTranscript(prev => [...prev, "AI Moderator: The debate has ended. The AI moderator is now evaluating the arguments..."]);
-          
-          // Disable microphone
-          if (isMicActive && recognition) {
-            recognition.stop();
-            setIsMicActive(false);
-          }
-          
-          // In a real implementation, trigger the AI to evaluate the debate
-          setTimeout(() => {
-            // Add final evaluation message
-            setTranscript(prev => [
-              ...prev, 
-              `AI Moderator: Debate evaluation: Both participants made compelling arguments. ${user?.username} provided strong evidence and logical reasoning. ${opponent?.username} demonstrated excellent counterarguments and rebuttals. Overall score: ${user?.username}: 8.4/10, ${opponent?.username}: 7.9/10. ${user?.username} is the winner of this debate!`
-            ]);
-            
-            // If we want the AI to speak this evaluation
-            handleAISpeech(`Debate evaluation: Both participants made compelling arguments. ${user?.username} provided strong evidence and logical reasoning. ${opponent?.username} demonstrated excellent counterarguments and rebuttals. Overall score: ${user?.username}: 8.4, ${opponent?.username}: 7.9. ${user?.username} is the winner of this debate!`);
-          }, 3000);
+          handleDebateEnd();
         }
         return newTime;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isDebateActive, timeLeft, user, opponent, recognition, isMicActive]);
+  }, [isDebateActive, timeLeft]);
 
   // Auto-scroll effect for transcript
   useEffect(() => {
@@ -283,6 +267,17 @@ const VoiceDebateRoom = () => {
       try {
         // Request microphone permission
         await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // If AI is speaking, interrupt
+        if (isAISpeaking) {
+          setInterruptAI(true);
+          if (audioRef.current) {
+            audioRef.current.pause();
+            setIsAISpeaking(false);
+            setCurrentSpeaker(null);
+            setLoadingVoice(false);
+          }
+        }
         
         // Start speech recognition
         recognition.start();
@@ -314,8 +309,8 @@ const VoiceDebateRoom = () => {
     }
   };
 
-  const handleAISpeech = async (text: string) => {
-    if (!audioRef.current) return;
+  const handleAISpeech = async (text: string, isOpening = false) => {
+    if (!audioRef.current || interruptAI) return;
     
     setLoadingVoice(true);
     setIsAISpeaking(true);
@@ -329,7 +324,7 @@ const VoiceDebateRoom = () => {
       if (!apiKey) {
         // If no API key, use browser's speech synthesis
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.0;
+        utterance.rate = 1.1; // Slightly faster for more interactive debate
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
         
@@ -342,6 +337,13 @@ const VoiceDebateRoom = () => {
           setIsAISpeaking(false);
           setCurrentSpeaker(null);
           setLoadingVoice(false);
+          
+          // If this was the opening statement, add an AI moderator prompt after a delay
+          if (isOpening) {
+            setTimeout(() => {
+              setTranscript(prev => [...prev, "AI Moderator: Now it's your turn. Click the microphone button to respond."]);
+            }, 500);
+          }
         };
       } else {
         // With a real ElevenLabs implementation, we would:
@@ -350,19 +352,26 @@ const VoiceDebateRoom = () => {
         // 3. Play it through audioRef.current
         
         // For now, we'll simulate this with a timeout and browser TTS
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         // Add the AI's speech to the transcript
         setTranscript(prev => [...prev, `AI Opponent: ${text}`]);
         
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.9; // Slightly slower for better clarity
+        utterance.rate = 1.1; // Slightly faster for more interactive debate
         window.speechSynthesis.speak(utterance);
         
         utterance.onend = () => {
           setIsAISpeaking(false);
           setCurrentSpeaker(null);
           setLoadingVoice(false);
+          
+          // If this was the opening statement, add an AI moderator prompt after a delay
+          if (isOpening) {
+            setTimeout(() => {
+              setTranscript(prev => [...prev, "AI Moderator: Now it's your turn. Click the microphone button to respond."]);
+            }, 500);
+          }
         };
       }
     } catch (error) {
@@ -379,11 +388,12 @@ const VoiceDebateRoom = () => {
   };
 
   const handleOpponentResponse = () => {
+    // Shorter, more focused responses for better interaction
     const responses = [
-      "While I understand privacy concerns, facial recognition technology provides crucial security benefits. It helps identify criminals and missing persons, potentially saving lives. With proper regulation, we can address bias issues while maintaining these security advantages.",
-      "I'd argue that the security benefits are substantial. These systems have helped solve crimes and prevent terrorism. Rather than banning the technology outright, we should focus on improving its accuracy and implementing strong oversight.",
-      "The key issue isn't the technology itself but how it's used. With proper legal frameworks, facial recognition can enhance public safety while respecting privacy. Complete bans would deprive society of valuable security tools.",
-      "We need to balance security and privacy, not choose between them. Facial recognition, when transparently deployed with public consent and oversight, can protect communities while respecting civil liberties."
+      "I understand privacy concerns, but facial recognition helps identify criminals and missing persons. With proper regulation, we can maintain security while addressing potential bias.",
+      "The key is regulation, not prohibition. These systems can solve crimes and prevent terrorism while respecting privacy through transparent oversight.",
+      "Complete bans would deprive society of security benefits. The technology itself isn't problematic, it's how we implement and regulate it.",
+      "We need balance, not bans. With public consent and oversight, facial recognition can enhance safety while protecting civil liberties."
     ];
     
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
@@ -394,7 +404,7 @@ const VoiceDebateRoom = () => {
       id: `feedback-${Date.now()}`,
       userId: opponent?.id || "opponent",
       username: opponent?.username || "Opponent",
-      score: 7.8,
+      score: Math.floor(Math.random() * 2) + 7, // Score between 7-8.9
       feedback: "Strong counterargument that addresses the core concerns.",
       strengths: ["Balanced perspective", "Clear argumentation", "Practical solutions"],
       improvements: ["Could be more empathetic to privacy concerns", "More specific examples needed"],
@@ -413,6 +423,74 @@ const VoiceDebateRoom = () => {
         description: "Your ElevenLabs API key has been saved.",
       });
     }
+  };
+  
+  const handleDebateEnd = () => {
+    // Stop ongoing activities
+    setIsDebateActive(false);
+    
+    if (isMicActive && recognition) {
+      recognition.stop();
+      setIsMicActive(false);
+    }
+    
+    if (isAISpeaking && audioRef.current) {
+      audioRef.current.pause();
+      setIsAISpeaking(false);
+    }
+    
+    setCurrentSpeaker(null);
+    
+    // Add debate ended transcript
+    setTranscript(prev => [...prev, "AI Moderator: The debate has ended. The AI moderator is now evaluating the arguments..."]);
+    
+    // Generate final evaluation
+    setTimeout(() => {
+      // Calculate final scores
+      const userScores = feedback.filter(f => f.userId === user?.id || f.userId === "current-user").map(f => f.score);
+      const opponentScores = feedback.filter(f => f.userId === opponent?.id || f.userId === "opponent").map(f => f.score);
+      
+      const userAvg = userScores.length > 0 
+        ? (userScores.reduce((sum, score) => sum + score, 0) / userScores.length).toFixed(1) 
+        : "7.8";
+      const aiAvg = opponentScores.length > 0 
+        ? (opponentScores.reduce((sum, score) => sum + score, 0) / opponentScores.length).toFixed(1) 
+        : "7.6";
+      
+      const winner = parseFloat(userAvg) >= parseFloat(aiAvg) ? user?.username || "You" : opponent?.username || "AI Opponent";
+      
+      // Set final score for results display
+      setFinalScore({
+        userScore: parseFloat(userAvg),
+        aiScore: parseFloat(aiAvg),
+        winner: winner
+      });
+      
+      // Add final evaluation message
+      setTranscript(prev => [
+        ...prev, 
+        `AI Moderator: Debate evaluation: Both participants made compelling arguments. ${user?.username || "You"} provided strong evidence and logical reasoning. ${opponent?.username || "AI Opponent"} demonstrated excellent counterarguments and rebuttals. Overall score: ${user?.username || "You"}: ${userAvg}/10, ${opponent?.username || "AI Opponent"}: ${aiAvg}/10. ${winner} is the winner of this debate!`
+      ]);
+      
+      // Show debate result dialog
+      setTimeout(() => {
+        setDebateResultOpen(true);
+        
+        // In a real application, here we would save the debate result to the user's history
+        console.log("Saving debate result:", {
+          topic: room?.topic.title,
+          userScore: parseFloat(userAvg),
+          opponentScore: parseFloat(aiAvg),
+          winner,
+          date: new Date().toISOString()
+        });
+      }, 2000);
+    }, 2000);
+  };
+  
+  const confirmEndDebate = () => {
+    setEndDialogOpen(false);
+    handleDebateEnd();
   };
 
   if (isLoading) {
@@ -448,11 +526,11 @@ const VoiceDebateRoom = () => {
         {/* Sidebar */}
         <div className="lg:col-span-1 space-y-6">
           {/* Topic Card */}
-          <Card>
-            <CardHeader className="pb-2">
+          <Card className="border-2 border-debate/20 shadow-md">
+            <CardHeader className="pb-2 bg-gradient-to-r from-debate/10 to-transparent">
               <CardTitle className="text-lg font-medium">Debate Topic</CardTitle>
               <CardDescription>
-                <Badge>{room.topic.category}</Badge>
+                <Badge className="bg-debate text-white hover:bg-debate/90">{room.topic.category}</Badge>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -464,8 +542,8 @@ const VoiceDebateRoom = () => {
           </Card>
           
           {/* Timer Card */}
-          <Card>
-            <CardHeader className="pb-2">
+          <Card className="border-2 border-debate/20 shadow-md">
+            <CardHeader className="pb-2 bg-gradient-to-r from-debate/10 to-transparent">
               <CardTitle className="text-lg font-medium">Time Remaining</CardTitle>
             </CardHeader>
             <CardContent>
@@ -480,8 +558,8 @@ const VoiceDebateRoom = () => {
           </Card>
           
           {/* Participants */}
-          <Card>
-            <CardHeader className="pb-2">
+          <Card className="border-2 border-debate/20 shadow-md">
+            <CardHeader className="pb-2 bg-gradient-to-r from-debate/10 to-transparent">
               <CardTitle className="text-lg font-medium">Participants</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -523,69 +601,88 @@ const VoiceDebateRoom = () => {
             </CardContent>
           </Card>
           
-          {/* ElevenLabs API Key */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-medium">Voice Settings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Button 
-                variant="outline" 
-                className="w-full" 
-                onClick={() => setApiKeyModalOpen(!apiKeyModalOpen)}
-              >
-                {localStorage.getItem("elevenlabsApiKey") ? "Change API Key" : "Set ElevenLabs API Key"}
-              </Button>
-              
-              {apiKeyModalOpen && (
-                <div className="mt-4 space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">ElevenLabs API Key</label>
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              variant="outline"
+              className="border-2 border-red-500/50 hover:bg-red-500/10 hover:text-red-600"
+              onClick={() => setEndDialogOpen(true)}
+              disabled={!isDebateActive}
+            >
+              <StopCircle className="mr-2 h-4 w-4" />
+              End Debate
+            </Button>
+            
+            <Button
+              variant="outline" 
+              className="border-2 border-debate/50 hover:bg-debate/10 hover:text-debate"
+              onClick={() => setApiKeyModalOpen(!apiKeyModalOpen)}
+            >
+              <Volume2 className="mr-2 h-4 w-4" />
+              Voice Settings
+            </Button>
+          </div>
+          
+          {/* ElevenLabs API Key Dialog */}
+          {apiKeyModalOpen && (
+            <Card className="mt-4 border-2 border-debate/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-medium">ElevenLabs API Settings</CardTitle>
+                <CardDescription>Enter your API key for more natural AI voice</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="api-key">ElevenLabs API Key</Label>
+                  <div className="flex gap-2">
                     <input
+                      id="api-key"
                       type="password"
                       className="w-full p-2 border rounded-md"
                       value={elevenlabsApiKey}
                       onChange={(e) => setElevenlabsApiKey(e.target.value)}
                       placeholder="Enter your API key"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Get your API key from <a href="https://elevenlabs.io/speech-synthesis" target="_blank" rel="noopener noreferrer" className="text-debate hover:underline">ElevenLabs</a>
-                    </p>
                   </div>
-                  <div className="flex space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setApiKeyModalOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      className="debate-button"
-                      size="sm"
-                      onClick={saveElevenlabsApiKey}
-                      disabled={!elevenlabsApiKey}
-                    >
-                      Save API Key
-                    </Button>
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Get your API key from <a href="https://elevenlabs.io/speech-synthesis" target="_blank" rel="noopener noreferrer" className="text-debate hover:underline">ElevenLabs</a>
+                  </p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setApiKeyModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="debate-button flex-1"
+                    size="sm"
+                    onClick={saveElevenlabsApiKey}
+                    disabled={!elevenlabsApiKey}
+                  >
+                    Save API Key
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
         
         {/* Main Content */}
         <div className="lg:col-span-3 space-y-6">
           {/* Voice Controls */}
-          <Card>
+          <Card className="border-2 border-debate/20 shadow-lg">
             <CardContent className="py-6">
               <div className="flex items-center justify-center space-x-4">
                 <Button
                   size="lg"
-                  className={`rounded-full p-6 ${isMicActive ? 'bg-red-500 hover:bg-red-600' : 'debate-button'}`}
+                  className={`rounded-full p-6 transition-all duration-300 shadow-md ${isMicActive 
+                    ? 'bg-red-500 hover:bg-red-600 shadow-red-200' 
+                    : 'bg-gradient-to-r from-debate to-debate-light hover:from-debate-light hover:to-debate'}`}
                   onClick={toggleMicrophone}
-                  disabled={!isDebateActive || isAISpeaking || loadingVoice}
+                  disabled={!isDebateActive || loadingVoice}
                 >
                   {isMicActive ? (
                     <MicOff className="h-6 w-6" />
@@ -598,7 +695,7 @@ const VoiceDebateRoom = () => {
                     {isMicActive 
                       ? "You are speaking - Click to mute" 
                       : isAISpeaking 
-                        ? "AI is speaking..." 
+                        ? "AI is speaking... Click to interrupt" 
                         : loadingVoice
                           ? "Generating AI speech..."
                           : isDebateActive
@@ -628,14 +725,14 @@ const VoiceDebateRoom = () => {
             </CardContent>
           </Card>
           
-          <Tabs defaultValue="transcript">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs defaultValue="transcript" className="border-2 border-debate/20 rounded-md shadow-md">
+            <TabsList className="grid w-full grid-cols-2 bg-gradient-to-r from-debate/10 to-transparent">
               <TabsTrigger value="transcript">Transcript</TabsTrigger>
               <TabsTrigger value="feedback">AI Feedback</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="transcript" className="mt-4">
-              <Card className="h-[60vh]">
+            <TabsContent value="transcript" className="mt-0">
+              <Card className="h-[60vh] border-0 shadow-none">
                 <CardContent className="p-6 h-full overflow-y-auto">
                   <div className="space-y-4">
                     {transcript.map((line, index) => {
@@ -645,7 +742,13 @@ const VoiceDebateRoom = () => {
                       return (
                         <div key={index} className="space-y-1">
                           <div className="flex items-center">
-                            <span className={`font-semibold ${speaker === 'AI Moderator' ? 'text-debate' : ''}`}>
+                            <span className={`font-semibold ${
+                              speaker === 'AI Moderator' 
+                                ? 'text-debate' 
+                                : speaker === 'AI Opponent'
+                                  ? 'text-blue-600'
+                                  : 'text-emerald-600'
+                            }`}>
                               {speaker}:
                             </span>
                           </div>
@@ -659,8 +762,8 @@ const VoiceDebateRoom = () => {
               </Card>
             </TabsContent>
             
-            <TabsContent value="feedback" className="mt-4">
-              <Card className="h-[60vh]">
+            <TabsContent value="feedback" className="mt-0">
+              <Card className="h-[60vh] border-0 shadow-none">
                 <CardContent className="p-6 h-full overflow-y-auto">
                   {feedback.length > 0 ? (
                     <div className="space-y-6">
@@ -677,7 +780,7 @@ const VoiceDebateRoom = () => {
                             <div className="flex items-center">
                               <span className="text-sm mr-2">Score:</span>
                               <Badge variant={item.score >= 7 ? "default" : item.score >= 5 ? "outline" : "destructive"} className="text-xs">
-                                {item.score}/10
+                                {item.score.toFixed(1)}/10
                               </Badge>
                             </div>
                           </div>
@@ -726,6 +829,122 @@ const VoiceDebateRoom = () => {
           </Tabs>
         </div>
       </div>
+      
+      {/* End Debate Confirmation Dialog */}
+      <AlertDialog open={endDialogOpen} onOpenChange={setEndDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End Debate?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to end this debate? The AI moderator will provide final scores and determine a winner based on the arguments presented so far.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmEndDebate}>End Debate</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Debate Results Dialog */}
+      <Dialog open={debateResultOpen} onOpenChange={setDebateResultOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-center text-2xl">
+              <Trophy className="h-6 w-6 text-yellow-500 mr-2" />
+              Debate Results
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              {finalScore && finalScore.winner === (user?.username || "You")
+                ? "Congratulations on your victory!"
+                : "Great effort! Keep improving your debate skills."
+              }
+            </DialogDescription>
+          </DialogHeader>
+          
+          {finalScore && (
+            <div className="space-y-6 py-4">
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div className={`p-4 rounded-lg ${finalScore.userScore >= finalScore.aiScore ? 'bg-gradient-to-b from-amber-100 to-yellow-50 border-2 border-yellow-300' : 'bg-gray-50 border-2 border-gray-200'}`}>
+                  <Avatar className="h-16 w-16 mx-auto mb-2">
+                    <AvatarImage src={user?.avatar} />
+                    <AvatarFallback>{user?.username?.charAt(0).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <p className="font-bold">{user?.username || "You"}</p>
+                  <div className="mt-2 text-3xl font-bold text-debate">
+                    {finalScore.userScore.toFixed(1)}
+                    <span className="text-sm text-muted-foreground">/10</span>
+                  </div>
+                  {finalScore.userScore >= finalScore.aiScore && (
+                    <Badge className="mt-2 bg-yellow-500">Winner</Badge>
+                  )}
+                </div>
+                
+                <div className={`p-4 rounded-lg ${finalScore.aiScore > finalScore.userScore ? 'bg-gradient-to-b from-amber-100 to-yellow-50 border-2 border-yellow-300' : 'bg-gray-50 border-2 border-gray-200'}`}>
+                  <Avatar className="h-16 w-16 mx-auto mb-2">
+                    <AvatarImage src={opponent?.avatar} />
+                    <AvatarFallback>{opponent?.username?.charAt(0).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <p className="font-bold">{opponent?.username || "AI Opponent"}</p>
+                  <div className="mt-2 text-3xl font-bold text-debate">
+                    {finalScore.aiScore.toFixed(1)}
+                    <span className="text-sm text-muted-foreground">/10</span>
+                  </div>
+                  {finalScore.aiScore > finalScore.userScore && (
+                    <Badge className="mt-2 bg-yellow-500">Winner</Badge>
+                  )}
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground">This result has been saved to your debate history</p>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter className="flex sm:justify-center">
+            <Button
+              type="button"
+              onClick={() => {
+                setDebateResultOpen(false);
+                navigate('/dashboard');
+              }}
+              className="debate-button"
+            >
+              Return to Dashboard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <style jsx="true">{`
+        .voice-wave {
+          width: 4px;
+          height: 15px;
+          background-color: #ff6b35;
+          border-radius: 2px;
+          animation: wave 1s infinite ease-in-out;
+          transform-origin: bottom;
+        }
+        
+        @keyframes wave {
+          0%, 100% {
+            transform: scaleY(0.5);
+          }
+          50% {
+            transform: scaleY(1);
+          }
+        }
+        
+        .debate-button {
+          background-color: #ff6b35;
+          color: white;
+        }
+        
+        .debate-button:hover {
+          background-color: #e85a2a;
+        }
+      `}</style>
     </div>
   );
 };

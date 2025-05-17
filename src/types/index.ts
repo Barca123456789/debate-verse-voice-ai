@@ -9,6 +9,19 @@ export interface User {
   debatesWon?: number;
   debatesParticipated?: number;
   createdAt?: string;
+  debateHistory?: DebateHistoryItem[];
+}
+
+export interface DebateHistoryItem {
+  id: string;
+  topicId: string;
+  topicTitle: string;
+  userScore: number;
+  opponentScore: number;
+  isWin: boolean;
+  date: string;
+  opponentName: string;
+  opponentAvatar?: string;
 }
 
 export interface Topic {
