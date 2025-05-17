@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -917,7 +916,8 @@ const VoiceDebateRoom = () => {
         </DialogContent>
       </Dialog>
       
-      <style jsx="true">{`
+      <style>
+        {`
         .voice-wave {
           width: 4px;
           height: 15px;
@@ -944,7 +944,8 @@ const VoiceDebateRoom = () => {
         .debate-button:hover {
           background-color: #e85a2a;
         }
-      `}</style>
+        `}
+      </style>
     </div>
   );
 };
